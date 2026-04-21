@@ -11,9 +11,17 @@ public class AttackerB extends SoccerBot {
 
     @Override
     protected String decide(GameState.State s) {
-        if (canKick(s)) return kickToward(s.ballPos(), shotAimPoint(s), 5.0);
+        if (canKick(s)) return kickToward(s.ballPos(), opponentGoal(), 5.0);
 
-        // 1. Calcular Recompensa Heurística (si avanzamos el balón hacia la portería rival)
+        // --- 1. OVERRIDE DE SUPERVIVENCIA (El Sentido Común) ---
+        // Si soy el jugador de mi equipo más cercano al balón, ABANDONO EL BANDIT Y ATACÓ.
+        if (s.amClosestTeammateToBall(this.playerId)) {
+            // Usar el predictor para ir a donde ESTARÁ el balón en 4 ticks (400ms en el futuro).
+            Vec2 futureBall = predictor.predict(4); 
+            return moveToward(s.myPos(), futureBall);
+        }
+
+        // --- 2. EVALUACIÓN DE RECOMPENSA HEURÍSTICA ---
         if (lastBallPos != null && currentStrategy != -1) {
             double distBefore = lastBallPos.dist(opponentGoal());
             double distNow = s.ballPos().dist(opponentGoal());
@@ -21,7 +29,7 @@ public class AttackerB extends SoccerBot {
         }
         lastBallPos = s.ballPos();
 
-        // 2. Ejecutar Bandit UCB1 cada 30 ticks
+        // --- 3. BANDIT UCB1 (Solo opera si NO soy el más cercano al balón) ---
         ticks++;
         if (ticks >= 30 || totalSelections == 0) {
             ticks = 0;
@@ -30,19 +38,19 @@ public class AttackerB extends SoccerBot {
             totalSelections++;
         }
 
-        // 3. Ejecutar Meta-Estrategia Seleccionada
         double opX = opponentGoal().x;
-        int dir = attacksRight() ? -1 : 1; // Para restar a Team A y sumar a Team B
+        int dir = attacksRight() ? -1 : 1; 
 
+        // --- 4. MOVIMIENTO SIN BALÓN ---
         switch(currentStrategy) {
-            case 0: // ATTACK: Ir directo al balón
+            case 0: // ATTACK
                 return moveToward(s.myPos(), s.ballPos());
-            case 1: // SUPPORT: Posicionarse a 20 unidades de la portería rival esperando pase
+            case 1: // SUPPORT
                 return moveToward(s.myPos(), new Vec2(opX + (20 * dir), s.ballPos().y));
-            case 2: // PRESS: Acosar al rival más cercano al balón
+            case 2: // PRESS
                 GameState.Player op = s.closestTo(s.ballPos(), s.opponents());
                 return op != null ? moveToward(s.myPos(), op.pos()) : moveToward(s.myPos(), s.ballPos());
-            case 3: // COUNTER: Quedarse adelantado al centro
+            case 3: // COUNTER
                 return moveToward(s.myPos(), new Vec2(opX + (10 * dir), FIELD_CENTER.y));
             default:
                 return stay();
