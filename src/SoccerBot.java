@@ -150,6 +150,24 @@ public abstract class SoccerBot {
         return Math.max(1.5, Math.min(4.5, dist * 0.14));
     }
 
+    protected double lineClearance(Vec2 from, Vec2 to, java.util.List<GameState.Player> blockers, double radius) {
+        Vec2 d = to.sub(from);
+        double len = d.len();
+        if (len < 1e-6) return 1.0;
+        Vec2 u = d.scale(1.0 / len);
+        double minPerp = Double.MAX_VALUE;
+        for (GameState.Player p : blockers) {
+            Vec2 rel = p.pos().sub(from);
+            double t = rel.dot(u);
+            if (t < 0 || t > len) continue;
+            double perp = Math.abs(rel.x * u.y - rel.y * u.x);
+            if (perp < minPerp) minPerp = perp;
+        }
+        if (minPerp == Double.MAX_VALUE) return 1.0;
+        if (minPerp < radius) return 0;
+        return Math.min(1.0, (minPerp - radius) / radius);
+    }
+
     protected Vec2 repulsionFromTeammates(GameState.State s, double minDist) {
         Vec2 me = s.myPos();
         Vec2 push = Vec2.zero();

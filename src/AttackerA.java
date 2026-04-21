@@ -1,4 +1,3 @@
-import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 
 public class AttackerA extends SoccerBot {
@@ -137,15 +136,15 @@ public class AttackerA extends SoccerBot {
         if (t == null) return 0;
         double myGoalDist   = s.myPos().dist(opponentGoal());
         double teamGoalDist = t.pos().dist(opponentGoal());
-        double improvement  = Math.max(0, (myGoalDist - teamGoalDist) / 100.0);
+        double improvement  = Math.min(1.0, Math.max(0, (myGoalDist - teamGoalDist) / 50.0));
         double clearance    = lineClearance(s.ballPos(), t.pos(), s.opponents(), PASS_RADIUS);
-        return improvement * clearance;
+        return improvement * clearance * 1.1;
     }
 
     private double utilDribble(GameState.State s) {
         double dist  = s.myPos().dist(opponentGoal());
         double clear = forwardClearance(s);
-        return clear * Math.min(1.0, dist / 50.0);
+        return clear * Math.min(1.0, dist / 50.0) * 0.75;
     }
 
     private double utilPress(GameState.State s) {
@@ -158,24 +157,6 @@ public class AttackerA extends SoccerBot {
 
     private double utilSupport(GameState.State s) {
         return s.amClosestTeammateToBall(s.you.id) ? 0 : 0.5;
-    }
-
-    private double lineClearance(Vec2 from, Vec2 to, List<GameState.Player> blockers, double radius) {
-        Vec2 d = to.sub(from);
-        double len = d.len();
-        if (len < 1e-6) return 1.0;
-        Vec2 u = d.scale(1.0 / len);
-        double minPerp = Double.MAX_VALUE;
-        for (GameState.Player p : blockers) {
-            Vec2 rel = p.pos().sub(from);
-            double t = rel.dot(u);
-            if (t < 0 || t > len) continue;
-            double perp = Math.abs(rel.x * u.y - rel.y * u.x);
-            if (perp < minPerp) minPerp = perp;
-        }
-        if (minPerp == Double.MAX_VALUE) return 1.0;
-        if (minPerp < radius) return 0;
-        return Math.min(1.0, (minPerp - radius) / radius);
     }
 
     private double forwardClearance(GameState.State s) {
