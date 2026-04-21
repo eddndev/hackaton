@@ -135,13 +135,15 @@ public class AttackerA extends SoccerBot {
     }
 
     private double utilPass(GameState.State s) {
-        GameState.Player t = bestPassTarget(s);
+        GameState.Player t = bestPassTarget(s, PASS_THRESHOLD);
         if (t == null) return 0;
         double myGoalDist   = s.myPos().dist(opponentGoal());
         double teamGoalDist = t.pos().dist(opponentGoal());
         double improvement  = Math.min(1.0, Math.max(0, (myGoalDist - teamGoalDist) / 50.0));
+        double dist         = s.ballPos().dist(t.pos());
+        double proximity    = Math.max(0, 1.0 - dist / 45.0);
         double clearance    = lineClearance(s.ballPos(), t.pos(), s.opponents(), PASS_BLOCKER_RADIUS);
-        return improvement * clearance * 1.1;
+        return Math.min(1.0, (improvement + proximity * 0.4) * clearance * 1.1);
     }
 
     private double utilDribble(GameState.State s) {
@@ -167,22 +169,8 @@ public class AttackerA extends SoccerBot {
         return lineClearance(s.myPos(), probe, s.opponents(), PASS_BLOCKER_RADIUS);
     }
 
-    private GameState.Player bestPassTarget(GameState.State s) {
-        GameState.Player best = null;
-        double bestScore = PASS_THRESHOLD;
-        double myGoalDist = s.myPos().dist(opponentGoal());
-        for (GameState.Player t : s.teammates(s.you.id)) {
-            double teamGoalDist = t.pos().dist(opponentGoal());
-            if (teamGoalDist >= myGoalDist + 5) continue;
-            double clearance = lineClearance(s.ballPos(), t.pos(), s.opponents(), PASS_RADIUS);
-            double score = ((myGoalDist - teamGoalDist) / 100.0) * clearance;
-            if (score > bestScore) { bestScore = score; best = t; }
-        }
-        return best;
-    }
-
     private String passAction(GameState.State s) {
-        GameState.Player t = bestPassTarget(s);
+        GameState.Player t = bestPassTarget(s, PASS_THRESHOLD);
         if (t == null) return shootAction(s);
         Vec2   leadTo = leadPosition(t, 3);
         double dist   = s.ballPos().dist(leadTo);

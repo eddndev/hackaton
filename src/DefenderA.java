@@ -69,22 +69,9 @@ public class DefenderA extends SoccerBot {
     }
 
     private String kickActionFromDef(GameState.State s) {
-        GameState.Player fwd = mostForwardTeammate(s);
-        if (fwd != null) {
-            double fwdDist = fwd.pos().dist(opponentGoal());
-            double myDist  = s.myPos().dist(opponentGoal());
-            if (fwdDist < myDist - 5) {
-                double clearance = lineClearance(s.ballPos(), fwd.pos(), s.opponents(), PASS_RADIUS);
-                if (clearance > 0.15) {
-                    Vec2 leadTo = leadPosition(fwd, 3);
-                    double dist = s.ballPos().dist(leadTo);
-                    return kickToward(s.ballPos(), leadTo, kickPowerForDistance(dist));
-                }
-            }
-        }
-        GameState.Player any = bestForwardTeammate(s);
-        if (any != null) {
-            Vec2 leadTo = leadPosition(any, 3);
+        GameState.Player target = bestPassTarget(s, PASS_SCORE_MIN);
+        if (target != null) {
+            Vec2 leadTo = leadPosition(target, 3);
             double dist = s.ballPos().dist(leadTo);
             return kickToward(s.ballPos(), leadTo, kickPowerForDistance(dist));
         }
@@ -95,20 +82,6 @@ public class DefenderA extends SoccerBot {
             return kickToward(s.ballPos(), leadTo, kickPowerForDistance(dist));
         }
         return kickToward(s.ballPos(), shotAimPoint(s), 5.0);
-    }
-
-    private GameState.Player bestForwardTeammate(GameState.State s) {
-        GameState.Player best = null;
-        double bestScore = PASS_SCORE_MIN;
-        double myGoalDist = s.myPos().dist(opponentGoal());
-        for (GameState.Player t : s.teammates(s.you.id)) {
-            double teamGoalDist = t.pos().dist(opponentGoal());
-            if (teamGoalDist >= myGoalDist) continue;
-            double clearance = lineClearance(s.ballPos(), t.pos(), s.opponents(), PASS_RADIUS);
-            double score = clearance * ((myGoalDist - teamGoalDist) / 80.0);
-            if (score > bestScore) { bestScore = score; best = t; }
-        }
-        return best;
     }
 
     private Vec2 holdingPosition(Vec2 ball) {
