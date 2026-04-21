@@ -17,8 +17,9 @@ public class GoalkeeperB extends SoccerBot {
         // Quedarse pegado a la portería siguiendo la altura (Y) del balón
         double targetX = myGoal.x + (attacksRight() ? 3.0 : -3.0); 
         // Clamp para no salirse de los postes de la portería
+        Vec2 futureBall = predictor.predict(8); // Predecir 800ms en el futuro
         double targetY = Math.max(FIELD_CENTER.y - GOAL_HALF_HEIGHT, 
-                         Math.min(FIELD_CENTER.y + GOAL_HALF_HEIGHT, ball.y)); 
+                         Math.min(FIELD_CENTER.y + GOAL_HALF_HEIGHT, futureBall.y));
         
         return moveToward(s.myPos(), new Vec2(targetX, targetY));
     }

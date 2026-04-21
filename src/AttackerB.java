@@ -11,8 +11,17 @@ public class AttackerB extends SoccerBot {
 
     @Override
     protected String decide(GameState.State s) {
-        if (canKick(s)) return kickToward(s.ballPos(), opponentGoal(), 5.0);
-
+        if (canKick(s)) {
+            // Encontrar al rival más cercano a su propia portería (seguro es el portero)
+            GameState.Player enemyGoalie = s.closestTo(opponentGoal(), s.opponents());
+            
+            // Si el portero está en la mitad de arriba, apuntar abajo (y viceversa)
+            double aimY = (enemyGoalie != null && enemyGoalie.y < FIELD_CENTER.y) 
+                        ? FIELD_CENTER.y + GOAL_HALF_HEIGHT - 2.0  // Esquina inferior
+                        : FIELD_CENTER.y - GOAL_HALF_HEIGHT + 2.0; // Esquina superior
+                        
+            return kickToward(s.ballPos(), new Vec2(opponentGoal().x, aimY), 5.0);
+        }
         // --- 1. OVERRIDE DE SUPERVIVENCIA (El Sentido Común) ---
         // Si soy el jugador de mi equipo más cercano al balón, ABANDONO EL BANDIT Y ATACÓ.
         if (s.amClosestTeammateToBall(this.playerId)) {
