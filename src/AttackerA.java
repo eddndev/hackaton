@@ -2,14 +2,14 @@ import java.util.concurrent.ThreadLocalRandom;
 
 public class AttackerA extends SoccerBot {
 
-    private static final double SHOOT_MAX_DIST     = 70.0;
-    private static final double BLOCKER_RADIUS     = 4.0;
+    private static final double SHOOT_MAX_DIST     = 80.0;
+    private static final double SHOT_BLOCKER_RADIUS = 2.5;
+    private static final double PASS_BLOCKER_RADIUS = 4.0;
     private static final double PASS_RADIUS        = 3.0;
-    private static final double PASS_THRESHOLD     = 0.15;
+    private static final double PASS_THRESHOLD     = 0.1;
     private static final double HYSTERESIS         = 0.12;
     private static final double TEMPERATURE        = 0.08;
-    private static final double DIRECT_CLEAR_MIN   = 0.35;
-    private static final double BANK_CLEAR_MIN     = 0.45;
+    private static final double CLOSE_RANGE        = 35.0;
     private static final double SPEED_PER_TICK     = 2.0;
     private static final int    PRESS_MAX_LOOKAHEAD = 8;
     private static final double REPULSION_DIST    = 10.0;
@@ -35,20 +35,24 @@ public class AttackerA extends SoccerBot {
         }
 
         Vec2 target;
-        switch (phase) {
-            case OFFENSE:
-                if (mem.isStuck(STUCK_THRESHOLD)) {
-                    target = TacticsA.findOpenSpace(s, attacksRight(), FIELD_W, FIELD_H);
-                    mem.resetStuck();
-                } else {
-                    target = TacticsA.overlapPosition(s, attacksRight(), FIELD_W, FIELD_H);
-                }
-                break;
-            case DEFENSE:
-                target = TacticsA.passLaneCut(s, ownGoal());
-                break;
-            default:
-                target = supportSlot(s, rank);
+        if (teammateHasBall(s)) {
+            target = receivePosition(s);
+        } else {
+            switch (phase) {
+                case OFFENSE:
+                    if (mem.isStuck(STUCK_THRESHOLD)) {
+                        target = TacticsA.findOpenSpace(s, attacksRight(), FIELD_W, FIELD_H);
+                        mem.resetStuck();
+                    } else {
+                        target = TacticsA.overlapPosition(s, attacksRight(), FIELD_W, FIELD_H);
+                    }
+                    break;
+                case DEFENSE:
+                    target = TacticsA.passLaneCut(s, ownGoal());
+                    break;
+                default:
+                    target = supportSlot(s, rank);
+            }
         }
 
         Vec2 push = repulsionFromTeammates(s, REPULSION_DIST);
@@ -91,24 +95,7 @@ public class AttackerA extends SoccerBot {
     }
 
     private String shootAction(GameState.State s) {
-        Vec2 ball   = s.ballPos();
-        Vec2 direct = shotAimPoint(s);
-        double directClear = lineClearance(ball, direct, s.opponents(), BLOCKER_RADIUS);
-        if (directClear >= DIRECT_CLEAR_MIN) {
-            return kickToward(ball, direct, 5.0);
-        }
-
-        Vec2 topBank = new Vec2(direct.x, -direct.y);
-        Vec2 botBank = new Vec2(direct.x, 2.0 * FIELD_H - direct.y);
-        double topClear = lineClearance(ball, topBank, s.opponents(), BLOCKER_RADIUS);
-        double botClear = lineClearance(ball, botBank, s.opponents(), BLOCKER_RADIUS);
-
-        double bestBank = Math.max(topClear, botClear);
-        if (bestBank > directClear && bestBank >= BANK_CLEAR_MIN) {
-            Vec2 bankAim = topClear >= botClear ? topBank : botBank;
-            return kickToward(ball, bankAim, 5.0);
-        }
-        return kickToward(ball, direct, 5.0);
+        return kickToward(s.ballPos(), shotAimPoint(s), 5.0);
     }
 
     private double noise() {
@@ -119,16 +106,9 @@ public class AttackerA extends SoccerBot {
         Vec2 aim = shotAimPoint(s);
         double dist = s.ballPos().dist(aim);
         double distScore  = Math.max(0, 1.0 - dist / SHOOT_MAX_DIST);
-        double clearScore = lineClearance(s.ballPos(), aim, s.opponents(), BLOCKER_RADIUS);
-        double bankHint   = 0;
-        if (clearScore < DIRECT_CLEAR_MIN) {
-            Vec2 top = new Vec2(aim.x, -aim.y);
-            Vec2 bot = new Vec2(aim.x, 2.0 * FIELD_H - aim.y);
-            bankHint = Math.max(
-                    lineClearance(s.ballPos(), top, s.opponents(), BLOCKER_RADIUS),
-                    lineClearance(s.ballPos(), bot, s.opponents(), BLOCKER_RADIUS));
-        }
-        return distScore * Math.max(clearScore, bankHint * 0.85);
+        double clearScore = lineClearance(s.ballPos(), aim, s.opponents(), SHOT_BLOCKER_RADIUS);
+        double closeBonus = dist < CLOSE_RANGE ? 0.3 * (1.0 - dist / CLOSE_RANGE) : 0;
+        return distScore * clearScore + closeBonus * clearScore;
     }
 
     private double utilPass(GameState.State s) {
@@ -137,7 +117,7 @@ public class AttackerA extends SoccerBot {
         double myGoalDist   = s.myPos().dist(opponentGoal());
         double teamGoalDist = t.pos().dist(opponentGoal());
         double improvement  = Math.min(1.0, Math.max(0, (myGoalDist - teamGoalDist) / 50.0));
-        double clearance    = lineClearance(s.ballPos(), t.pos(), s.opponents(), PASS_RADIUS);
+        double clearance    = lineClearance(s.ballPos(), t.pos(), s.opponents(), PASS_BLOCKER_RADIUS);
         return improvement * clearance * 1.1;
     }
 
@@ -161,7 +141,7 @@ public class AttackerA extends SoccerBot {
 
     private double forwardClearance(GameState.State s) {
         Vec2 probe = s.myPos().add(new Vec2(attacksRight() ? 15 : -15, 0));
-        return lineClearance(s.myPos(), probe, s.opponents(), BLOCKER_RADIUS);
+        return lineClearance(s.myPos(), probe, s.opponents(), PASS_BLOCKER_RADIUS);
     }
 
     private GameState.Player bestPassTarget(GameState.State s) {

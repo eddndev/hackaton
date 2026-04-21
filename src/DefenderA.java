@@ -61,9 +61,22 @@ public class DefenderA extends SoccerBot {
     }
 
     private String kickActionFromDef(GameState.State s) {
-        GameState.Player passTarget = bestForwardTeammate(s);
-        if (passTarget != null) {
-            Vec2 leadTo = leadPosition(passTarget, 3);
+        GameState.Player fwd = mostForwardTeammate(s);
+        if (fwd != null) {
+            double fwdDist = fwd.pos().dist(opponentGoal());
+            double myDist  = s.myPos().dist(opponentGoal());
+            if (fwdDist < myDist - 5) {
+                double clearance = lineClearance(s.ballPos(), fwd.pos(), s.opponents(), PASS_RADIUS);
+                if (clearance > 0.15) {
+                    Vec2 leadTo = leadPosition(fwd, 3);
+                    double dist = s.ballPos().dist(leadTo);
+                    return kickToward(s.ballPos(), leadTo, kickPowerForDistance(dist));
+                }
+            }
+        }
+        GameState.Player any = bestForwardTeammate(s);
+        if (any != null) {
+            Vec2 leadTo = leadPosition(any, 3);
             double dist = s.ballPos().dist(leadTo);
             return kickToward(s.ballPos(), leadTo, kickPowerForDistance(dist));
         }

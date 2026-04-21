@@ -81,7 +81,36 @@ public abstract class SoccerBot {
         }
         if (rivalGK == null) return goal;
         double sign = rivalGK.y < goal.y ? +1 : -1;
-        return new Vec2(goal.x, goal.y + sign * GOAL_HALF_HEIGHT * 0.8);
+        return new Vec2(goal.x, goal.y + sign * GOAL_HALF_HEIGHT * 0.4);
+    }
+
+    protected GameState.Player mostForwardTeammate(GameState.State s) {
+        GameState.Player best = null;
+        double bestDist = Double.MAX_VALUE;
+        Vec2 goal = opponentGoal();
+        for (GameState.Player t : s.teammates(s.you.id)) {
+            double d = t.pos().dist(goal);
+            if (d < bestDist) { bestDist = d; best = t; }
+        }
+        return best;
+    }
+
+    protected boolean teammateHasBall(GameState.State s) {
+        for (GameState.Player t : s.teammates(s.you.id)) {
+            if (t.pos().dist(s.ballPos()) < 1.0) return true;
+        }
+        return false;
+    }
+
+    protected Vec2 receivePosition(GameState.State s) {
+        Vec2 goal = opponentGoal();
+        Vec2 ball = s.ballPos();
+        double towardGoalX = attacksRight() ? goal.x - 18 : goal.x + 18;
+        double y = ball.y < FIELD_H / 2.0 ? FIELD_H * 0.7 : FIELD_H * 0.3;
+        return new Vec2(
+                Math.max(10, Math.min(FIELD_W - 10, towardGoalX)),
+                Math.max(10, Math.min(FIELD_H - 10, y))
+        );
     }
 
     protected Vec2 interceptPoint(Vec2 myPos, double speedPerTick, int maxLookahead) {
