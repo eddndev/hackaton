@@ -1,12 +1,16 @@
 import java.util.List;
+import java.util.concurrent.ThreadLocalRandom;
 
 public class AttackerA extends SoccerBot {
 
     private static final double SHOOT_MAX_DIST     = 70.0;
     private static final double BLOCKER_RADIUS     = 4.0;
     private static final double PASS_RADIUS        = 3.0;
-    private static final double PASS_THRESHOLD     = 0.3;
+    private static final double PASS_THRESHOLD     = 0.15;
     private static final double HYSTERESIS         = 0.12;
+    private static final double TEMPERATURE        = 0.08;
+    private static final double DIRECT_CLEAR_MIN   = 0.35;
+    private static final double BANK_CLEAR_MIN     = 0.45;
     private static final double SPEED_PER_TICK     = 2.0;
     private static final int    PRESS_MAX_LOOKAHEAD = 8;
     private static final double REPULSION_DIST    = 10.0;
@@ -53,11 +57,11 @@ public class AttackerA extends SoccerBot {
     }
 
     private String utilityDecide(GameState.State s, boolean hasBall) {
-        double uShoot   = hasBall  ? utilShoot(s)   : 0;
-        double uPass    = hasBall  ? utilPass(s)    : 0;
-        double uDribble = hasBall  ? utilDribble(s) : 0;
-        double uPress   = !hasBall ? utilPress(s)   : 0;
-        double uSupport = !hasBall ? utilSupport(s) : 0;
+        double uShoot   = (hasBall  ? utilShoot(s)   : 0) + noise();
+        double uPass    = (hasBall  ? utilPass(s)    : 0) + noise();
+        double uDribble = (hasBall  ? utilDribble(s) : 0) + noise();
+        double uPress   = (!hasBall ? utilPress(s)   : 0) + noise();
+        double uSupport = (!hasBall ? utilSupport(s) : 0) + noise();
 
         switch (lastAction) {
             case "SHOOT":   uShoot   += HYSTERESIS; break;
@@ -77,7 +81,7 @@ public class AttackerA extends SoccerBot {
         lastAction = pick;
 
         switch (pick) {
-            case "SHOOT":   return kickToward(s.ballPos(), shotAimPoint(s), 5.0);
+            case "SHOOT":   return shootAction(s);
             case "PASS":    return passAction(s);
             case "DRIBBLE": return kickToward(s.ballPos(), shotAimPoint(s), 2.5);
             case "PRESS":   return moveToward(s.myPos(),
@@ -87,12 +91,45 @@ public class AttackerA extends SoccerBot {
         }
     }
 
+    private String shootAction(GameState.State s) {
+        Vec2 ball   = s.ballPos();
+        Vec2 direct = shotAimPoint(s);
+        double directClear = lineClearance(ball, direct, s.opponents(), BLOCKER_RADIUS);
+        if (directClear >= DIRECT_CLEAR_MIN) {
+            return kickToward(ball, direct, 5.0);
+        }
+
+        Vec2 topBank = new Vec2(direct.x, -direct.y);
+        Vec2 botBank = new Vec2(direct.x, 2.0 * FIELD_H - direct.y);
+        double topClear = lineClearance(ball, topBank, s.opponents(), BLOCKER_RADIUS);
+        double botClear = lineClearance(ball, botBank, s.opponents(), BLOCKER_RADIUS);
+
+        double bestBank = Math.max(topClear, botClear);
+        if (bestBank > directClear && bestBank >= BANK_CLEAR_MIN) {
+            Vec2 bankAim = topClear >= botClear ? topBank : botBank;
+            return kickToward(ball, bankAim, 5.0);
+        }
+        return kickToward(ball, direct, 5.0);
+    }
+
+    private double noise() {
+        return ThreadLocalRandom.current().nextDouble() * TEMPERATURE;
+    }
+
     private double utilShoot(GameState.State s) {
         Vec2 aim = shotAimPoint(s);
         double dist = s.ballPos().dist(aim);
         double distScore  = Math.max(0, 1.0 - dist / SHOOT_MAX_DIST);
         double clearScore = lineClearance(s.ballPos(), aim, s.opponents(), BLOCKER_RADIUS);
-        return distScore * clearScore;
+        double bankHint   = 0;
+        if (clearScore < DIRECT_CLEAR_MIN) {
+            Vec2 top = new Vec2(aim.x, -aim.y);
+            Vec2 bot = new Vec2(aim.x, 2.0 * FIELD_H - aim.y);
+            bankHint = Math.max(
+                    lineClearance(s.ballPos(), top, s.opponents(), BLOCKER_RADIUS),
+                    lineClearance(s.ballPos(), bot, s.opponents(), BLOCKER_RADIUS));
+        }
+        return distScore * Math.max(clearScore, bankHint * 0.85);
     }
 
     private double utilPass(GameState.State s) {
@@ -102,7 +139,7 @@ public class AttackerA extends SoccerBot {
         double teamGoalDist = t.pos().dist(opponentGoal());
         double improvement  = Math.max(0, (myGoalDist - teamGoalDist) / 100.0);
         double clearance    = lineClearance(s.ballPos(), t.pos(), s.opponents(), PASS_RADIUS);
-        return improvement * clearance * 0.9;
+        return improvement * clearance;
     }
 
     private double utilDribble(GameState.State s) {
@@ -152,7 +189,7 @@ public class AttackerA extends SoccerBot {
         double myGoalDist = s.myPos().dist(opponentGoal());
         for (GameState.Player t : s.teammates(s.you.id)) {
             double teamGoalDist = t.pos().dist(opponentGoal());
-            if (teamGoalDist >= myGoalDist) continue;
+            if (teamGoalDist >= myGoalDist + 5) continue;
             double clearance = lineClearance(s.ballPos(), t.pos(), s.opponents(), PASS_RADIUS);
             double score = ((myGoalDist - teamGoalDist) / 100.0) * clearance;
             if (score > bestScore) { bestScore = score; best = t; }
@@ -162,10 +199,11 @@ public class AttackerA extends SoccerBot {
 
     private String passAction(GameState.State s) {
         GameState.Player t = bestPassTarget(s);
-        if (t == null) return kickToward(s.ballPos(), shotAimPoint(s), 5.0);
-        double dist  = s.ballPos().dist(t.pos());
-        double power = Math.max(1.5, Math.min(4.0, dist / 20.0));
-        return kickToward(s.ballPos(), t.pos(), power);
+        if (t == null) return shootAction(s);
+        Vec2   leadTo = leadPosition(t, 3);
+        double dist   = s.ballPos().dist(leadTo);
+        double power  = kickPowerForDistance(dist);
+        return kickToward(s.ballPos(), leadTo, power);
     }
 
     public static void main(String[] args) throws Exception {

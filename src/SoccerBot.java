@@ -24,6 +24,9 @@ public abstract class SoccerBot {
     protected final Gson gson = new Gson();
     protected final BallPredictor predictor = new BallPredictor();
 
+    private final java.util.Map<Integer, Vec2> lastPlayerPos = new java.util.HashMap<>();
+    private final java.util.Map<Integer, Vec2> playerVel     = new java.util.HashMap<>();
+
     public SoccerBot(String team) {
         this.team = team.toUpperCase();
         this.http = HttpClient.newBuilder()
@@ -38,6 +41,7 @@ public abstract class SoccerBot {
             try {
                 GameState.State s = fetchState();
                 predictor.update(s.ballPos());
+                trackPlayerVelocities(s);
                 String action = decide(s);
                 if (action != null && !action.isBlank()) sendAction(action);
             } catch (Exception e) {
@@ -101,20 +105,49 @@ public abstract class SoccerBot {
     protected Vec2 supportSlot(GameState.State s, int rank) {
         Vec2 ball = s.ballPos();
         if (rank <= 1) {
-            double xOff = attacksRight() ? 25.0 : -25.0;
+            double flankY = ball.y < FIELD_H / 2.0 ? FIELD_H * 0.78 : FIELD_H * 0.22;
+            double xOff   = attacksRight() ? 22.0 : -22.0;
             return new Vec2(
                     Math.max(8, Math.min(FIELD_W - 8, ball.x + xOff)),
-                    Math.max(8, Math.min(FIELD_H - 8, ball.y))
+                    Math.max(8, Math.min(FIELD_H - 8, flankY))
             );
         }
-        double mirrorY = FIELD_CENTER.y - (ball.y - FIELD_CENTER.y) * 0.7;
-        double safetyX = attacksRight()
-                ? Math.min(ball.x - 20, FIELD_W / 2.0 - 5)
-                : Math.max(ball.x + 20, FIELD_W / 2.0 + 5);
+        double idBias   = (s.you.id % 2 == 0 ? 8.0 : -8.0);
+        double mirrorY  = FIELD_CENTER.y + (ball.y - FIELD_CENTER.y) * 0.5 + idBias;
+        double behindX  = attacksRight()
+                ? Math.min(ball.x - 18, FIELD_W / 2.0 - 5)
+                : Math.max(ball.x + 18, FIELD_W / 2.0 + 5);
         return new Vec2(
-                Math.max(8, Math.min(FIELD_W - 8, safetyX)),
+                Math.max(8, Math.min(FIELD_W - 8, behindX)),
                 Math.max(8, Math.min(FIELD_H - 8, mirrorY))
         );
+    }
+
+    private void trackPlayerVelocities(GameState.State s) {
+        for (GameState.Player p : s.players) {
+            Vec2 cur  = p.pos();
+            Vec2 prev = lastPlayerPos.get(p.id);
+            if (prev != null) {
+                Vec2 newV = cur.sub(prev);
+                Vec2 oldV = playerVel.getOrDefault(p.id, Vec2.zero());
+                playerVel.put(p.id, oldV.scale(0.5).add(newV.scale(0.5)));
+            }
+            lastPlayerPos.put(p.id, cur);
+        }
+    }
+
+    protected Vec2 playerVelocity(int id) {
+        return playerVel.getOrDefault(id, Vec2.zero());
+    }
+
+    protected Vec2 leadPosition(GameState.Player target, int ticksAhead) {
+        Vec2 v = playerVelocity(target.id);
+        if (v.len() < 0.3) return target.pos();
+        return target.pos().add(v.scale(ticksAhead));
+    }
+
+    protected double kickPowerForDistance(double dist) {
+        return Math.max(1.5, Math.min(4.5, dist * 0.14));
     }
 
     protected Vec2 repulsionFromTeammates(GameState.State s, double minDist) {

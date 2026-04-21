@@ -28,7 +28,11 @@ public class DefenderA extends SoccerBot {
 
         Vec2 target;
 
-        if (rank == 0 && ballInMyHalf(ball)) {
+        boolean ballReachable = attacksRight()
+                ? ball.x < FIELD_W * 0.72
+                : ball.x > FIELD_W * 0.28;
+
+        if (rank == 0 && ballReachable) {
             target = interceptPoint(myPos, SPEED_PER_TICK, CHASE_LOOKAHEAD);
         } else if (phase == TacticsA.Phase.DEFENSE) {
             GameState.Player threat = TacticsA.highestThreat(s, myGoal);
