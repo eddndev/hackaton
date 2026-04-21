@@ -63,6 +63,7 @@ public class AttackerA extends SoccerBot {
         double uShoot   = (hasBall  ? utilShoot(s)   : 0) + noise();
         double uPass    = (hasBall  ? utilPass(s)    : 0) + noise();
         double uDribble = (hasBall  ? utilDribble(s) : 0) + noise();
+        double uRecycle = (hasBall  ? utilRecycle(s) : 0) + noise();
         double uPress   = (!hasBall ? utilPress(s)   : 0) + noise();
         double uSupport = (!hasBall ? utilSupport(s) : 0) + noise();
 
@@ -70,6 +71,7 @@ public class AttackerA extends SoccerBot {
             case "SHOOT":   uShoot   += HYSTERESIS; break;
             case "PASS":    uPass    += HYSTERESIS; break;
             case "DRIBBLE": uDribble += HYSTERESIS; break;
+            case "RECYCLE": uRecycle += HYSTERESIS; break;
             case "PRESS":   uPress   += HYSTERESIS; break;
             case "SUPPORT": uSupport += HYSTERESIS; break;
         }
@@ -78,6 +80,7 @@ public class AttackerA extends SoccerBot {
         if (uShoot   > best) { best = uShoot;   pick = "SHOOT";   }
         if (uPass    > best) { best = uPass;    pick = "PASS";    }
         if (uDribble > best) { best = uDribble; pick = "DRIBBLE"; }
+        if (uRecycle > best) { best = uRecycle; pick = "RECYCLE"; }
         if (uPress   > best) { best = uPress;   pick = "PRESS";   }
         if (uSupport > best) { best = uSupport; pick = "SUPPORT"; }
 
@@ -87,11 +90,31 @@ public class AttackerA extends SoccerBot {
             case "SHOOT":   return shootAction(s);
             case "PASS":    return passAction(s);
             case "DRIBBLE": return kickToward(s.ballPos(), shotAimPoint(s), 2.5);
+            case "RECYCLE": return recycleAction(s);
             case "PRESS":   return moveToward(s.myPos(),
                                               interceptPoint(s.myPos(), SPEED_PER_TICK, PRESS_MAX_LOOKAHEAD));
             case "SUPPORT": return moveToward(s.myPos(), supportSlot(s, 1));
             default:        return moveToward(s.myPos(), s.ballPos());
         }
+    }
+
+    private double utilRecycle(GameState.State s) {
+        Vec2 aim = shotAimPoint(s);
+        double shootClear = lineClearance(s.ballPos(), aim, s.opponents(), SHOT_BLOCKER_RADIUS);
+        double fwdClear   = forwardClearance(s);
+        if (shootClear > 0.3 || fwdClear > 0.5) return 0;
+        GameState.Player back = safestBackwardTeammate(s);
+        if (back == null) return 0;
+        double clearance = lineClearance(s.ballPos(), back.pos(), s.opponents(), PASS_BLOCKER_RADIUS);
+        return clearance * 0.55;
+    }
+
+    private String recycleAction(GameState.State s) {
+        GameState.Player back = safestBackwardTeammate(s);
+        if (back == null) return shootAction(s);
+        Vec2 leadTo = leadPosition(back, 3);
+        double dist = s.ballPos().dist(leadTo);
+        return kickToward(s.ballPos(), leadTo, kickPowerForDistance(dist));
     }
 
     private String shootAction(GameState.State s) {

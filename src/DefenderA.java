@@ -35,7 +35,15 @@ public class DefenderA extends SoccerBot {
                 ? ball.x < FIELD_W * 0.72
                 : ball.x > FIELD_W * 0.28;
 
-        boolean shouldChase = (rank == 0 && ballReachable);
+        boolean ballInDefThird = attacksRight()
+                ? ball.x < FIELD_W * 0.33
+                : ball.x > FIELD_W * 0.67;
+        GameState.Player nearRival = s.closestTo(ball, s.opponents());
+        boolean rivalControls = nearRival != null && nearRival.pos().dist(ball) < 8.0;
+
+        boolean emergency = ballInDefThird && rivalControls;
+
+        boolean shouldChase = (rank == 0 && ballReachable) || emergency;
         if (shouldChase) {
             chaseLock = CHASE_LOCK_TICKS;
         } else if (chaseLock > 0 && ballReachable) {
@@ -77,6 +85,12 @@ public class DefenderA extends SoccerBot {
         GameState.Player any = bestForwardTeammate(s);
         if (any != null) {
             Vec2 leadTo = leadPosition(any, 3);
+            double dist = s.ballPos().dist(leadTo);
+            return kickToward(s.ballPos(), leadTo, kickPowerForDistance(dist));
+        }
+        GameState.Player back = safestBackwardTeammate(s);
+        if (back != null && back.pos().dist(ownGoal()) > 25) {
+            Vec2 leadTo = leadPosition(back, 3);
             double dist = s.ballPos().dist(leadTo);
             return kickToward(s.ballPos(), leadTo, kickPowerForDistance(dist));
         }

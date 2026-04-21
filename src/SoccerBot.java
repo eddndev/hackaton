@@ -113,6 +113,21 @@ public abstract class SoccerBot {
         );
     }
 
+    protected GameState.Player safestBackwardTeammate(GameState.State s) {
+        GameState.Player best = null;
+        double bestScore = 0.25;
+        double myGoalDist = s.myPos().dist(opponentGoal());
+        Vec2 ownG = ownGoal();
+        for (GameState.Player t : s.teammates(s.you.id)) {
+            double teamGoalDist = t.pos().dist(opponentGoal());
+            if (teamGoalDist <= myGoalDist + 5) continue;
+            if (t.pos().dist(ownG) < 15) continue;
+            double clearance = lineClearance(s.ballPos(), t.pos(), s.opponents(), 4.0);
+            if (clearance > bestScore) { bestScore = clearance; best = t; }
+        }
+        return best;
+    }
+
     protected Vec2 interceptPoint(Vec2 myPos, double speedPerTick, int maxLookahead) {
         int t = predictor.timeToReach(myPos, speedPerTick, maxLookahead);
         if (t < 0) return predictor.current();
