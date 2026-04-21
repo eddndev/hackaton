@@ -101,20 +101,19 @@ public abstract class SoccerBot {
     protected Vec2 supportSlot(GameState.State s, int rank) {
         Vec2 ball = s.ballPos();
         if (rank <= 1) {
-            double yOff  = ball.y < FIELD_H / 2.0 ? 22.0 : -22.0;
-            double xOff  = attacksRight() ? 18.0 : -18.0;
+            double xOff = attacksRight() ? 25.0 : -25.0;
             return new Vec2(
                     Math.max(8, Math.min(FIELD_W - 8, ball.x + xOff)),
-                    Math.max(8, Math.min(FIELD_H - 8, ball.y + yOff))
+                    Math.max(8, Math.min(FIELD_H - 8, ball.y))
             );
         }
-        double behindX = attacksRight()
+        double mirrorY = FIELD_CENTER.y - (ball.y - FIELD_CENTER.y) * 0.7;
+        double safetyX = attacksRight()
                 ? Math.min(ball.x - 20, FIELD_W / 2.0 - 5)
                 : Math.max(ball.x + 20, FIELD_W / 2.0 + 5);
-        double coverY = FIELD_CENTER.y + (ball.y - FIELD_CENTER.y) * 0.5;
         return new Vec2(
-                Math.max(8, Math.min(FIELD_W - 8, behindX)),
-                Math.max(8, Math.min(FIELD_H - 8, coverY))
+                Math.max(8, Math.min(FIELD_W - 8, safetyX)),
+                Math.max(8, Math.min(FIELD_H - 8, mirrorY))
         );
     }
 
