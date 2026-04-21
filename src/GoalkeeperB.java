@@ -4,7 +4,7 @@ public class GoalkeeperB extends SoccerBot {
 
     @Override
     protected String decide(GameState.State s) {
-        if (canKick(s)) return kickToward(s.ballPos(), opponentGoal(), 5.0); // Despejar con todo
+        if (canKick(s)) return kickToward(s.ballPos(), shotAimPoint(s), 5.0); // Despejar con todo
 
         Vec2 ball = s.ballPos();
         Vec2 myGoal = ownGoal();

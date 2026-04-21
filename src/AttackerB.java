@@ -11,7 +11,7 @@ public class AttackerB extends SoccerBot {
 
     @Override
     protected String decide(GameState.State s) {
-        if (canKick(s)) return kickToward(s.ballPos(), opponentGoal(), 5.0);
+        if (canKick(s)) return kickToward(s.ballPos(), shotAimPoint(s), 5.0);
 
         // 1. Calcular Recompensa Heurística (si avanzamos el balón hacia la portería rival)
         if (lastBallPos != null && currentStrategy != -1) {

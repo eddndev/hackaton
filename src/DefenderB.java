@@ -4,7 +4,7 @@ public class DefenderB extends SoccerBot {
 
     @Override
     protected String decide(GameState.State s) {
-        if (canKick(s)) return kickToward(s.ballPos(), opponentGoal(), 4.5);
+        if (canKick(s)) return kickToward(s.ballPos(), shotAimPoint(s), 4.5);
 
         Vec2 ball = s.ballPos();
         

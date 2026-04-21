@@ -19,6 +19,8 @@ Los stubs ya compilan y corren con comportamiento dummy (van al balón y patean)
 
 ## Arranque rápido
 
+### Linux / macOS
+
 ```bash
 ./compile.sh                 # compila src/*.java -> out/
 java -jar server.jar         # terminal 1
@@ -26,13 +28,21 @@ java -jar visualizador.jar   # terminal 2
 ./run-all.sh                 # terminal 3: lanza los 6 bots, logs en logs/
 ```
 
-Click en **Iniciar Partido** en el visualizador.
+Debug un bot: `./run.sh GoalkeeperB B`
 
-Para debug de un solo bot:
+### Windows
 
-```bash
-./run.sh GoalkeeperB B
+```bat
+compile.bat                  REM compila src\*.java -> out\
+java -jar server.jar         REM terminal 1
+java -jar visualizador.jar   REM terminal 2
+run-all.bat                  REM abre 6 ventanas, una por bot
+stop-all.bat                 REM mata los 6 bots por titulo de ventana
 ```
+
+Debug un bot: `run.bat GoalkeeperB B`
+
+Click en **Iniciar Partido** en el visualizador.
 
 ---
 
