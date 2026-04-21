@@ -9,6 +9,7 @@ public class DefenderA extends SoccerBot {
     private static final int    CHASE_LOCK_TICKS = 6;
     private static final double PASS_RADIUS      = 3.0;
     private static final double PASS_SCORE_MIN   = 0.2;
+    private static final double PROXIMITY_TRIGGER = 35.0;
 
     private final TacticsA.BotMemory mem = new TacticsA.BotMemory();
     private int chaseLock = 0;
@@ -32,18 +33,22 @@ public class DefenderA extends SoccerBot {
         TacticsA.Phase phase = TacticsA.detectPhase(s, attacksRight(), FIELD_W);
 
         boolean ballReachable = attacksRight()
-                ? ball.x < FIELD_W * 0.72
-                : ball.x > FIELD_W * 0.28;
+                ? ball.x < FIELD_W * 0.85
+                : ball.x > FIELD_W * 0.15;
 
         boolean ballInDefThird = attacksRight()
                 ? ball.x < FIELD_W * 0.33
                 : ball.x > FIELD_W * 0.67;
+
         GameState.Player nearRival = s.closestTo(ball, s.opponents());
         boolean rivalControls = nearRival != null && nearRival.pos().dist(ball) < 8.0;
+        double myBallDist = myPos.dist(ball);
 
         boolean emergency = ballInDefThird && rivalControls;
 
-        boolean shouldChase = (rank == 0 && ballReachable) || emergency;
+        boolean shouldChase = (rank == 0 && ballReachable)
+                || emergency
+                || (rivalControls && myBallDist < PROXIMITY_TRIGGER);
         if (shouldChase) {
             chaseLock = CHASE_LOCK_TICKS;
         } else if (chaseLock > 0 && ballReachable) {
@@ -69,28 +74,51 @@ public class DefenderA extends SoccerBot {
     }
 
     private String kickActionFromDef(GameState.State s) {
-        GameState.Player target = bestPassTarget(s, PASS_SCORE_MIN);
+        GameState.Player target = bestForwardPassTarget(s);
         if (target != null) {
             Vec2 leadTo = leadPosition(target, 3);
             double dist = s.ballPos().dist(leadTo);
             return kickToward(s.ballPos(), leadTo, kickPowerForDistance(dist));
         }
-        GameState.Player back = safestBackwardTeammate(s);
-        if (back != null && back.pos().dist(ownGoal()) > 25) {
-            Vec2 leadTo = leadPosition(back, 3);
-            double dist = s.ballPos().dist(leadTo);
-            return kickToward(s.ballPos(), leadTo, kickPowerForDistance(dist));
+        return kickToward(s.ballPos(), clearanceForward(s.ballPos()), 5.0);
+    }
+
+    private GameState.Player bestForwardPassTarget(GameState.State s) {
+        GameState.Player best = null;
+        double bestScore = PASS_SCORE_MIN;
+        double myGoalDist = s.myPos().dist(opponentGoal());
+        Vec2 ball = s.ballPos();
+        for (GameState.Player t : s.teammates(s.you.id)) {
+            double teamGoalDist = t.pos().dist(opponentGoal());
+            if (teamGoalDist >= myGoalDist) continue;
+            boolean forwardInX = attacksRight()
+                    ? t.pos().x > s.myPos().x
+                    : t.pos().x < s.myPos().x;
+            if (!forwardInX) continue;
+            double dist = ball.dist(t.pos());
+            if (dist > 70) continue;
+            double improvement = Math.max(0, (myGoalDist - teamGoalDist) / 80.0);
+            double proximity   = Math.max(0, 1.0 - dist / 45.0);
+            double clearance   = lineClearance(ball, t.pos(), s.opponents(), PASS_RADIUS);
+            double score = (improvement + proximity * 0.4) * clearance;
+            if (score > bestScore) { bestScore = score; best = t; }
         }
-        return kickToward(s.ballPos(), shotAimPoint(s), 5.0);
+        return best;
+    }
+
+    private Vec2 clearanceForward(Vec2 ball) {
+        double forwardX = attacksRight() ? FIELD_W : 0;
+        double sideY    = ball.y < FIELD_H / 2.0 ? 5 : FIELD_H - 5;
+        return new Vec2(forwardX, sideY);
     }
 
     private Vec2 holdingPosition(Vec2 ball) {
         double ownGoalX = attacksRight() ? 0 : FIELD_W;
-        double holdX    = ownGoalX + (ball.x - ownGoalX) * 0.5;
+        double holdX    = ownGoalX + (ball.x - ownGoalX) * 0.6;
         if (attacksRight()) {
-            holdX = Math.max(BASE_FROM_GOAL - 10, Math.min(FIELD_W * 0.45, holdX));
+            holdX = Math.max(BASE_FROM_GOAL - 10, Math.min(FIELD_W * 0.5, holdX));
         } else {
-            holdX = Math.max(FIELD_W * 0.55, Math.min(FIELD_W - BASE_FROM_GOAL + 10, holdX));
+            holdX = Math.max(FIELD_W * 0.5, Math.min(FIELD_W - BASE_FROM_GOAL + 10, holdX));
         }
         double holdY = FIELD_CENTER.y + (ball.y - FIELD_CENTER.y) * 0.7;
         return new Vec2(holdX, holdY);
