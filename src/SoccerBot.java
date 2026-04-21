@@ -24,6 +24,9 @@ public abstract class SoccerBot {
     protected final Gson gson = new Gson();
     protected final BallPredictor predictor = new BallPredictor();
 
+    private final java.util.Map<Integer, Vec2> lastPlayerPos = new java.util.HashMap<>();
+    private final java.util.Map<Integer, Vec2> playerVel     = new java.util.HashMap<>();
+
     public SoccerBot(String team) {
         this.team = team.toUpperCase();
         this.http = HttpClient.newBuilder()
@@ -38,6 +41,7 @@ public abstract class SoccerBot {
             try {
                 GameState.State s = fetchState();
                 predictor.update(s.ballPos());
+                trackPlayerVelocities(s);
                 String action = decide(s);
                 if (action != null && !action.isBlank()) sendAction(action);
             } catch (Exception e) {
@@ -77,7 +81,75 @@ public abstract class SoccerBot {
         }
         if (rivalGK == null) return goal;
         double sign = rivalGK.y < goal.y ? +1 : -1;
-        return new Vec2(goal.x, goal.y + sign * GOAL_HALF_HEIGHT * 0.8);
+        return new Vec2(goal.x, goal.y + sign * GOAL_HALF_HEIGHT * 0.4);
+    }
+
+    protected GameState.Player mostForwardTeammate(GameState.State s) {
+        GameState.Player best = null;
+        double bestDist = Double.MAX_VALUE;
+        Vec2 goal = opponentGoal();
+        for (GameState.Player t : s.teammates(s.you.id)) {
+            double d = t.pos().dist(goal);
+            if (d < bestDist) { bestDist = d; best = t; }
+        }
+        return best;
+    }
+
+    protected boolean teammateHasBall(GameState.State s) {
+        for (GameState.Player t : s.teammates(s.you.id)) {
+            if (t.pos().dist(s.ballPos()) < 1.0) return true;
+        }
+        return false;
+    }
+
+    protected Vec2 receivePosition(GameState.State s) {
+        GameState.Player carrier = null;
+        for (GameState.Player t : s.teammates(s.you.id)) {
+            if (t.pos().dist(s.ballPos()) < 1.0) { carrier = t; break; }
+        }
+        if (carrier == null) return supportSlot(s, 1);
+
+        Vec2 cp = carrier.pos();
+        double xOff = attacksRight() ? 25.0 : -25.0;
+        double baseX = Math.max(10, Math.min(FIELD_W - 10, cp.x + xOff));
+        Vec2 upPos = new Vec2(baseX, Math.max(10, cp.y - 18));
+        Vec2 dnPos = new Vec2(baseX, Math.min(FIELD_H - 10, cp.y + 18));
+        double upClear = lineClearance(cp, upPos, s.opponents(), 4.0);
+        double dnClear = lineClearance(cp, dnPos, s.opponents(), 4.0);
+        return upClear >= dnClear ? upPos : dnPos;
+    }
+
+    protected GameState.Player bestPassTarget(GameState.State s, double threshold) {
+        GameState.Player best = null;
+        double bestScore = threshold;
+        double myGoalDist = s.myPos().dist(opponentGoal());
+        for (GameState.Player t : s.teammates(s.you.id)) {
+            double teamGoalDist = t.pos().dist(opponentGoal());
+            if (teamGoalDist > myGoalDist + 10) continue;
+            double dist = s.ballPos().dist(t.pos());
+            if (dist > 70) continue;
+            double improvement = Math.max(0, (myGoalDist - teamGoalDist) / 80.0);
+            double proximity   = Math.max(0, 1.0 - dist / 45.0);
+            double clearance   = lineClearance(s.ballPos(), t.pos(), s.opponents(), 4.0);
+            double score       = (improvement + proximity * 0.4) * clearance;
+            if (score > bestScore) { bestScore = score; best = t; }
+        }
+        return best;
+    }
+
+    protected GameState.Player safestBackwardTeammate(GameState.State s) {
+        GameState.Player best = null;
+        double bestScore = 0.25;
+        double myGoalDist = s.myPos().dist(opponentGoal());
+        Vec2 ownG = ownGoal();
+        for (GameState.Player t : s.teammates(s.you.id)) {
+            double teamGoalDist = t.pos().dist(opponentGoal());
+            if (teamGoalDist <= myGoalDist + 5) continue;
+            if (t.pos().dist(ownG) < 15) continue;
+            double clearance = lineClearance(s.ballPos(), t.pos(), s.opponents(), 4.0);
+            if (clearance > bestScore) { bestScore = clearance; best = t; }
+        }
+        return best;
     }
 
     protected Vec2 interceptPoint(Vec2 myPos, double speedPerTick, int maxLookahead) {
@@ -100,22 +172,67 @@ public abstract class SoccerBot {
 
     protected Vec2 supportSlot(GameState.State s, int rank) {
         Vec2 ball = s.ballPos();
+        boolean ballUpper = ball.y < FIELD_H / 2.0;
+
         if (rank <= 1) {
-            double yOff  = ball.y < FIELD_H / 2.0 ? 22.0 : -22.0;
-            double xOff  = attacksRight() ? 18.0 : -18.0;
+            double xOff = attacksRight() ? 20.0 : -20.0;
+            double yOff = ballUpper ? 18.0 : -18.0;
             return new Vec2(
-                    Math.max(8, Math.min(FIELD_W - 8, ball.x + xOff)),
-                    Math.max(8, Math.min(FIELD_H - 8, ball.y + yOff))
+                    Math.max(10, Math.min(FIELD_W - 10, ball.x + xOff)),
+                    Math.max(10, Math.min(FIELD_H - 10, ball.y + yOff))
             );
         }
-        double behindX = attacksRight()
-                ? Math.min(ball.x - 20, FIELD_W / 2.0 - 5)
-                : Math.max(ball.x + 20, FIELD_W / 2.0 + 5);
-        double coverY = FIELD_CENTER.y + (ball.y - FIELD_CENTER.y) * 0.5;
+        double xOff = attacksRight() ? -15.0 : 15.0;
+        double yOff = ballUpper ? -8.0 : 8.0;
         return new Vec2(
-                Math.max(8, Math.min(FIELD_W - 8, behindX)),
-                Math.max(8, Math.min(FIELD_H - 8, coverY))
+                Math.max(10, Math.min(FIELD_W - 10, ball.x + xOff)),
+                Math.max(10, Math.min(FIELD_H - 10, ball.y + yOff))
         );
+    }
+
+    private void trackPlayerVelocities(GameState.State s) {
+        for (GameState.Player p : s.players) {
+            Vec2 cur  = p.pos();
+            Vec2 prev = lastPlayerPos.get(p.id);
+            if (prev != null) {
+                Vec2 newV = cur.sub(prev);
+                Vec2 oldV = playerVel.getOrDefault(p.id, Vec2.zero());
+                playerVel.put(p.id, oldV.scale(0.5).add(newV.scale(0.5)));
+            }
+            lastPlayerPos.put(p.id, cur);
+        }
+    }
+
+    protected Vec2 playerVelocity(int id) {
+        return playerVel.getOrDefault(id, Vec2.zero());
+    }
+
+    protected Vec2 leadPosition(GameState.Player target, int ticksAhead) {
+        Vec2 v = playerVelocity(target.id);
+        if (v.len() < 0.3) return target.pos();
+        return target.pos().add(v.scale(ticksAhead));
+    }
+
+    protected double kickPowerForDistance(double dist) {
+        return Math.max(1.5, Math.min(4.5, dist * 0.14));
+    }
+
+    protected double lineClearance(Vec2 from, Vec2 to, java.util.List<GameState.Player> blockers, double radius) {
+        Vec2 d = to.sub(from);
+        double len = d.len();
+        if (len < 1e-6) return 1.0;
+        Vec2 u = d.scale(1.0 / len);
+        double minPerp = Double.MAX_VALUE;
+        for (GameState.Player p : blockers) {
+            Vec2 rel = p.pos().sub(from);
+            double t = rel.dot(u);
+            if (t < 0 || t > len) continue;
+            double perp = Math.abs(rel.x * u.y - rel.y * u.x);
+            if (perp < minPerp) minPerp = perp;
+        }
+        if (minPerp == Double.MAX_VALUE) return 1.0;
+        if (minPerp < radius) return 0;
+        return Math.min(1.0, (minPerp - radius) / radius);
     }
 
     protected Vec2 repulsionFromTeammates(GameState.State s, double minDist) {

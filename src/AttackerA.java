@@ -1,12 +1,15 @@
-import java.util.List;
+import java.util.concurrent.ThreadLocalRandom;
 
 public class AttackerA extends SoccerBot {
 
-    private static final double SHOOT_MAX_DIST     = 70.0;
-    private static final double BLOCKER_RADIUS     = 4.0;
+    private static final double SHOOT_MAX_DIST     = 80.0;
+    private static final double SHOT_BLOCKER_RADIUS = 2.5;
+    private static final double PASS_BLOCKER_RADIUS = 4.0;
     private static final double PASS_RADIUS        = 3.0;
-    private static final double PASS_THRESHOLD     = 0.3;
+    private static final double PASS_THRESHOLD     = 0.1;
     private static final double HYSTERESIS         = 0.12;
+    private static final double TEMPERATURE        = 0.08;
+    private static final double CLOSE_RANGE        = 35.0;
     private static final double SPEED_PER_TICK     = 2.0;
     private static final int    PRESS_MAX_LOOKAHEAD = 8;
     private static final double REPULSION_DIST    = 10.0;
@@ -32,20 +35,24 @@ public class AttackerA extends SoccerBot {
         }
 
         Vec2 target;
-        switch (phase) {
-            case OFFENSE:
-                if (mem.isStuck(STUCK_THRESHOLD)) {
-                    target = TacticsA.findOpenSpace(s, attacksRight(), FIELD_W, FIELD_H);
-                    mem.resetStuck();
-                } else {
-                    target = TacticsA.overlapPosition(s, attacksRight(), FIELD_W, FIELD_H);
-                }
-                break;
-            case DEFENSE:
-                target = TacticsA.passLaneCut(s, ownGoal());
-                break;
-            default:
-                target = supportSlot(s, rank);
+        if (teammateHasBall(s)) {
+            target = receivePosition(s);
+        } else {
+            switch (phase) {
+                case OFFENSE:
+                    if (mem.isStuck(STUCK_THRESHOLD)) {
+                        target = TacticsA.findOpenSpace(s, attacksRight(), FIELD_W, FIELD_H);
+                        mem.resetStuck();
+                    } else {
+                        target = TacticsA.overlapPosition(s, attacksRight(), FIELD_W, FIELD_H);
+                    }
+                    break;
+                case DEFENSE:
+                    target = TacticsA.passLaneCut(s, ownGoal());
+                    break;
+                default:
+                    target = supportSlot(s, rank);
+            }
         }
 
         Vec2 push = repulsionFromTeammates(s, REPULSION_DIST);
@@ -53,16 +60,18 @@ public class AttackerA extends SoccerBot {
     }
 
     private String utilityDecide(GameState.State s, boolean hasBall) {
-        double uShoot   = hasBall  ? utilShoot(s)   : 0;
-        double uPass    = hasBall  ? utilPass(s)    : 0;
-        double uDribble = hasBall  ? utilDribble(s) : 0;
-        double uPress   = !hasBall ? utilPress(s)   : 0;
-        double uSupport = !hasBall ? utilSupport(s) : 0;
+        double uShoot   = (hasBall  ? utilShoot(s)   : 0) + noise();
+        double uPass    = (hasBall  ? utilPass(s)    : 0) + noise();
+        double uDribble = (hasBall  ? utilDribble(s) : 0) + noise();
+        double uRecycle = (hasBall  ? utilRecycle(s) : 0) + noise();
+        double uPress   = (!hasBall ? utilPress(s)   : 0) + noise();
+        double uSupport = (!hasBall ? utilSupport(s) : 0) + noise();
 
         switch (lastAction) {
             case "SHOOT":   uShoot   += HYSTERESIS; break;
             case "PASS":    uPass    += HYSTERESIS; break;
             case "DRIBBLE": uDribble += HYSTERESIS; break;
+            case "RECYCLE": uRecycle += HYSTERESIS; break;
             case "PRESS":   uPress   += HYSTERESIS; break;
             case "SUPPORT": uSupport += HYSTERESIS; break;
         }
@@ -71,15 +80,17 @@ public class AttackerA extends SoccerBot {
         if (uShoot   > best) { best = uShoot;   pick = "SHOOT";   }
         if (uPass    > best) { best = uPass;    pick = "PASS";    }
         if (uDribble > best) { best = uDribble; pick = "DRIBBLE"; }
+        if (uRecycle > best) { best = uRecycle; pick = "RECYCLE"; }
         if (uPress   > best) { best = uPress;   pick = "PRESS";   }
         if (uSupport > best) { best = uSupport; pick = "SUPPORT"; }
 
         lastAction = pick;
 
         switch (pick) {
-            case "SHOOT":   return kickToward(s.ballPos(), shotAimPoint(s), 5.0);
+            case "SHOOT":   return shootAction(s);
             case "PASS":    return passAction(s);
             case "DRIBBLE": return kickToward(s.ballPos(), shotAimPoint(s), 2.5);
+            case "RECYCLE": return recycleAction(s);
             case "PRESS":   return moveToward(s.myPos(),
                                               interceptPoint(s.myPos(), SPEED_PER_TICK, PRESS_MAX_LOOKAHEAD));
             case "SUPPORT": return moveToward(s.myPos(), supportSlot(s, 1));
@@ -87,28 +98,58 @@ public class AttackerA extends SoccerBot {
         }
     }
 
+    private double utilRecycle(GameState.State s) {
+        Vec2 aim = shotAimPoint(s);
+        double shootClear = lineClearance(s.ballPos(), aim, s.opponents(), SHOT_BLOCKER_RADIUS);
+        double fwdClear   = forwardClearance(s);
+        if (shootClear > 0.3 || fwdClear > 0.5) return 0;
+        GameState.Player back = safestBackwardTeammate(s);
+        if (back == null) return 0;
+        double clearance = lineClearance(s.ballPos(), back.pos(), s.opponents(), PASS_BLOCKER_RADIUS);
+        return clearance * 0.55;
+    }
+
+    private String recycleAction(GameState.State s) {
+        GameState.Player back = safestBackwardTeammate(s);
+        if (back == null) return shootAction(s);
+        Vec2 leadTo = leadPosition(back, 3);
+        double dist = s.ballPos().dist(leadTo);
+        return kickToward(s.ballPos(), leadTo, kickPowerForDistance(dist));
+    }
+
+    private String shootAction(GameState.State s) {
+        return kickToward(s.ballPos(), shotAimPoint(s), 5.0);
+    }
+
+    private double noise() {
+        return ThreadLocalRandom.current().nextDouble() * TEMPERATURE;
+    }
+
     private double utilShoot(GameState.State s) {
         Vec2 aim = shotAimPoint(s);
         double dist = s.ballPos().dist(aim);
         double distScore  = Math.max(0, 1.0 - dist / SHOOT_MAX_DIST);
-        double clearScore = lineClearance(s.ballPos(), aim, s.opponents(), BLOCKER_RADIUS);
-        return distScore * clearScore;
+        double clearScore = lineClearance(s.ballPos(), aim, s.opponents(), SHOT_BLOCKER_RADIUS);
+        double closeBonus = dist < CLOSE_RANGE ? 0.3 * (1.0 - dist / CLOSE_RANGE) : 0;
+        return distScore * clearScore + closeBonus * clearScore;
     }
 
     private double utilPass(GameState.State s) {
-        GameState.Player t = bestPassTarget(s);
+        GameState.Player t = bestPassTarget(s, PASS_THRESHOLD);
         if (t == null) return 0;
         double myGoalDist   = s.myPos().dist(opponentGoal());
         double teamGoalDist = t.pos().dist(opponentGoal());
-        double improvement  = Math.max(0, (myGoalDist - teamGoalDist) / 100.0);
-        double clearance    = lineClearance(s.ballPos(), t.pos(), s.opponents(), PASS_RADIUS);
-        return improvement * clearance * 0.9;
+        double improvement  = Math.min(1.0, Math.max(0, (myGoalDist - teamGoalDist) / 50.0));
+        double dist         = s.ballPos().dist(t.pos());
+        double proximity    = Math.max(0, 1.0 - dist / 45.0);
+        double clearance    = lineClearance(s.ballPos(), t.pos(), s.opponents(), PASS_BLOCKER_RADIUS);
+        return Math.min(1.0, (improvement + proximity * 0.4) * clearance * 1.1);
     }
 
     private double utilDribble(GameState.State s) {
         double dist  = s.myPos().dist(opponentGoal());
         double clear = forwardClearance(s);
-        return clear * Math.min(1.0, dist / 50.0);
+        return clear * Math.min(1.0, dist / 50.0) * 0.75;
     }
 
     private double utilPress(GameState.State s) {
@@ -123,49 +164,18 @@ public class AttackerA extends SoccerBot {
         return s.amClosestTeammateToBall(s.you.id) ? 0 : 0.5;
     }
 
-    private double lineClearance(Vec2 from, Vec2 to, List<GameState.Player> blockers, double radius) {
-        Vec2 d = to.sub(from);
-        double len = d.len();
-        if (len < 1e-6) return 1.0;
-        Vec2 u = d.scale(1.0 / len);
-        double minPerp = Double.MAX_VALUE;
-        for (GameState.Player p : blockers) {
-            Vec2 rel = p.pos().sub(from);
-            double t = rel.dot(u);
-            if (t < 0 || t > len) continue;
-            double perp = Math.abs(rel.x * u.y - rel.y * u.x);
-            if (perp < minPerp) minPerp = perp;
-        }
-        if (minPerp == Double.MAX_VALUE) return 1.0;
-        if (minPerp < radius) return 0;
-        return Math.min(1.0, (minPerp - radius) / radius);
-    }
-
     private double forwardClearance(GameState.State s) {
         Vec2 probe = s.myPos().add(new Vec2(attacksRight() ? 15 : -15, 0));
-        return lineClearance(s.myPos(), probe, s.opponents(), BLOCKER_RADIUS);
-    }
-
-    private GameState.Player bestPassTarget(GameState.State s) {
-        GameState.Player best = null;
-        double bestScore = PASS_THRESHOLD;
-        double myGoalDist = s.myPos().dist(opponentGoal());
-        for (GameState.Player t : s.teammates(s.you.id)) {
-            double teamGoalDist = t.pos().dist(opponentGoal());
-            if (teamGoalDist >= myGoalDist) continue;
-            double clearance = lineClearance(s.ballPos(), t.pos(), s.opponents(), PASS_RADIUS);
-            double score = ((myGoalDist - teamGoalDist) / 100.0) * clearance;
-            if (score > bestScore) { bestScore = score; best = t; }
-        }
-        return best;
+        return lineClearance(s.myPos(), probe, s.opponents(), PASS_BLOCKER_RADIUS);
     }
 
     private String passAction(GameState.State s) {
-        GameState.Player t = bestPassTarget(s);
-        if (t == null) return kickToward(s.ballPos(), shotAimPoint(s), 5.0);
-        double dist  = s.ballPos().dist(t.pos());
-        double power = Math.max(1.5, Math.min(4.0, dist / 20.0));
-        return kickToward(s.ballPos(), t.pos(), power);
+        GameState.Player t = bestPassTarget(s, PASS_THRESHOLD);
+        if (t == null) return shootAction(s);
+        Vec2   leadTo = leadPosition(t, 3);
+        double dist   = s.ballPos().dist(leadTo);
+        double power  = kickPowerForDistance(dist);
+        return kickToward(s.ballPos(), leadTo, power);
     }
 
     public static void main(String[] args) throws Exception {
