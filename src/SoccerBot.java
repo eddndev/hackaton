@@ -86,6 +86,51 @@ public abstract class SoccerBot {
         return predictor.predict(t);
     }
 
+    protected int teamRank(GameState.State s) {
+        int myId = s.you.id;
+        double myD = s.myPos().dist(s.ballPos());
+        int rank = 0;
+        for (GameState.Player t : s.teammates(myId)) {
+            double d = t.pos().dist(s.ballPos());
+            if (d < myD) rank++;
+            else if (d == myD && t.id < myId) rank++;
+        }
+        return rank;
+    }
+
+    protected Vec2 supportSlot(GameState.State s, int rank) {
+        Vec2 ball = s.ballPos();
+        if (rank <= 1) {
+            double yOff  = ball.y < FIELD_H / 2.0 ? 22.0 : -22.0;
+            double xOff  = attacksRight() ? 18.0 : -18.0;
+            return new Vec2(
+                    Math.max(8, Math.min(FIELD_W - 8, ball.x + xOff)),
+                    Math.max(8, Math.min(FIELD_H - 8, ball.y + yOff))
+            );
+        }
+        double behindX = attacksRight()
+                ? Math.min(ball.x - 20, FIELD_W / 2.0 - 5)
+                : Math.max(ball.x + 20, FIELD_W / 2.0 + 5);
+        double coverY = FIELD_CENTER.y + (ball.y - FIELD_CENTER.y) * 0.5;
+        return new Vec2(
+                Math.max(8, Math.min(FIELD_W - 8, behindX)),
+                Math.max(8, Math.min(FIELD_H - 8, coverY))
+        );
+    }
+
+    protected Vec2 repulsionFromTeammates(GameState.State s, double minDist) {
+        Vec2 me = s.myPos();
+        Vec2 push = Vec2.zero();
+        for (GameState.Player t : s.teammates(s.you.id)) {
+            Vec2 rel = me.sub(t.pos());
+            double d = rel.len();
+            if (d < minDist && d > 0.1) {
+                push = push.add(rel.scale((minDist - d) / d));
+            }
+        }
+        return push;
+    }
+
     protected String moveToward(Vec2 from, Vec2 target) {
         Vec2 d = target.sub(from).norm();
         return String.format(Locale.ROOT, "MOVE %d %.4f %.4f", playerId, d.x, d.y);
