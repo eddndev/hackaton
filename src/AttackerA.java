@@ -2,22 +2,57 @@ import java.util.List;
 
 public class AttackerA extends SoccerBot {
 
-    private static final double SHOOT_MAX_DIST  = 70.0;
-    private static final double BLOCKER_RADIUS  = 4.0;
-    private static final double PASS_RADIUS     = 3.0;
-    private static final double PASS_THRESHOLD  = 0.3;
-    private static final double HYSTERESIS      = 0.12;
-    private static final double SPEED_PER_TICK  = 2.0;
+    private static final double SHOOT_MAX_DIST     = 70.0;
+    private static final double BLOCKER_RADIUS     = 4.0;
+    private static final double PASS_RADIUS        = 3.0;
+    private static final double PASS_THRESHOLD     = 0.3;
+    private static final double HYSTERESIS         = 0.12;
+    private static final double SPEED_PER_TICK     = 2.0;
     private static final int    PRESS_MAX_LOOKAHEAD = 8;
+    private static final double REPULSION_DIST    = 10.0;
+    private static final double REPULSION_GAIN    = 0.3;
+    private static final int    STUCK_THRESHOLD    = 25;
 
     private String lastAction = "PRESS";
+    private final TacticsA.BotMemory mem = new TacticsA.BotMemory();
 
     public AttackerA(String team) { super(team); }
 
     @Override
     protected String decide(GameState.State s) {
-        boolean hasBall = canKick(s);
+        Vec2 myPos = s.myPos();
+        mem.update(myPos);
 
+        boolean hasBall = canKick(s);
+        int rank = teamRank(s);
+        TacticsA.Phase phase = TacticsA.detectPhase(s, attacksRight(), FIELD_W);
+
+        if (hasBall || rank == 0) {
+            return utilityDecide(s, hasBall);
+        }
+
+        Vec2 target;
+        switch (phase) {
+            case OFFENSE:
+                if (mem.isStuck(STUCK_THRESHOLD)) {
+                    target = TacticsA.findOpenSpace(s, attacksRight(), FIELD_W, FIELD_H);
+                    mem.resetStuck();
+                } else {
+                    target = TacticsA.overlapPosition(s, attacksRight(), FIELD_W, FIELD_H);
+                }
+                break;
+            case DEFENSE:
+                target = TacticsA.passLaneCut(s, ownGoal());
+                break;
+            default:
+                target = supportSlot(s, rank);
+        }
+
+        Vec2 push = repulsionFromTeammates(s, REPULSION_DIST);
+        return moveToward(myPos, target.add(push.scale(REPULSION_GAIN)));
+    }
+
+    private String utilityDecide(GameState.State s, boolean hasBall) {
         double uShoot   = hasBall  ? utilShoot(s)   : 0;
         double uPass    = hasBall  ? utilPass(s)    : 0;
         double uDribble = hasBall  ? utilDribble(s) : 0;
@@ -47,7 +82,7 @@ public class AttackerA extends SoccerBot {
             case "DRIBBLE": return kickToward(s.ballPos(), shotAimPoint(s), 2.5);
             case "PRESS":   return moveToward(s.myPos(),
                                               interceptPoint(s.myPos(), SPEED_PER_TICK, PRESS_MAX_LOOKAHEAD));
-            case "SUPPORT": return moveToward(s.myPos(), supportPosition(s));
+            case "SUPPORT": return moveToward(s.myPos(), supportSlot(s, 1));
             default:        return moveToward(s.myPos(), s.ballPos());
         }
     }
@@ -131,21 +166,6 @@ public class AttackerA extends SoccerBot {
         double dist  = s.ballPos().dist(t.pos());
         double power = Math.max(1.5, Math.min(4.0, dist / 20.0));
         return kickToward(s.ballPos(), t.pos(), power);
-    }
-
-    private Vec2 supportPosition(GameState.State s) {
-        Vec2 ball = s.ballPos();
-        int myId = s.you.id;
-        double offsetY = (myId % 2 == 0) ? -22 : 22;
-        double offsetX = attacksRight() ? 15 : -15;
-        return new Vec2(
-                clamp(ball.x + offsetX, 10, FIELD_W - 10),
-                clamp(ball.y + offsetY, 8, FIELD_H - 8)
-        );
-    }
-
-    private static double clamp(double v, double lo, double hi) {
-        return Math.max(lo, Math.min(hi, v));
     }
 
     public static void main(String[] args) throws Exception {
