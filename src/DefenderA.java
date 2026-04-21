@@ -1,51 +1,58 @@
 public class DefenderA extends SoccerBot {
 
     private static final double MARK_GAP        = 2.0;
-    private static final double THREAT_DISTANCE = 65.0;
     private static final double BASE_FROM_GOAL  = 35.0;
-    private static final double Y_MIRROR        = 0.7;
     private static final double SPEED_PER_TICK  = 2.0;
     private static final int    CHASE_LOOKAHEAD = 6;
+    private static final double REPULSION_DIST  = 10.0;
+    private static final double REPULSION_GAIN  = 0.3;
+
+    private final TacticsA.BotMemory mem = new TacticsA.BotMemory();
 
     public DefenderA(String team) { super(team); }
 
     @Override
     protected String decide(GameState.State s) {
-        Vec2 myPos   = s.myPos();
-        Vec2 ballPos = s.ballPos();
-        Vec2 myGoal  = ownGoal();
+        Vec2 myPos  = s.myPos();
+        Vec2 ball   = s.ballPos();
+        Vec2 myGoal = ownGoal();
+
+        mem.update(myPos);
 
         if (canKick(s)) {
-            return kickToward(ballPos, shotAimPoint(s), 5.0);
+            return kickToward(ball, shotAimPoint(s), 5.0);
         }
 
-        if (s.amClosestTeammateToBall(s.you.id) && ballInMyHalf(ballPos)) {
-            Vec2 target = interceptPoint(myPos, SPEED_PER_TICK, CHASE_LOOKAHEAD);
-            return moveToward(myPos, target);
+        int rank = teamRank(s);
+        TacticsA.Phase phase = TacticsA.detectPhase(s, attacksRight(), FIELD_W);
+
+        Vec2 target;
+
+        if (rank == 0 && ballInMyHalf(ball)) {
+            target = interceptPoint(myPos, SPEED_PER_TICK, CHASE_LOOKAHEAD);
+        } else if (phase == TacticsA.Phase.DEFENSE) {
+            GameState.Player threat = TacticsA.highestThreat(s, myGoal);
+            target = threat != null
+                    ? computeMarkPosition(threat.pos(), myGoal)
+                    : homePosition(ball);
+        } else if (phase == TacticsA.Phase.OFFENSE && rank >= 1) {
+            target = supportSlot(s, rank);
+        } else {
+            target = homePosition(ball);
         }
 
-        GameState.Player threat = mostThreateningOpponent(s, myGoal);
-        if (threat != null) {
-            return moveToward(myPos, computeMarkPosition(threat.pos(), myGoal));
-        }
+        Vec2 push = repulsionFromTeammates(s, REPULSION_DIST);
+        return moveToward(myPos, target.add(push.scale(REPULSION_GAIN)));
+    }
 
+    private Vec2 homePosition(Vec2 ball) {
         double baseX = attacksRight() ? BASE_FROM_GOAL : FIELD_W - BASE_FROM_GOAL;
-        double homeY = FIELD_CENTER.y + (ballPos.y - FIELD_CENTER.y) * Y_MIRROR;
-        return moveToward(myPos, new Vec2(baseX, homeY));
+        double homeY = FIELD_CENTER.y + (ball.y - FIELD_CENTER.y) * 0.7;
+        return new Vec2(baseX, homeY);
     }
 
     private boolean ballInMyHalf(Vec2 b) {
         return attacksRight() ? b.x < FIELD_W / 2.0 : b.x > FIELD_W / 2.0;
-    }
-
-    private GameState.Player mostThreateningOpponent(GameState.State s, Vec2 myGoal) {
-        GameState.Player best = null;
-        double bestDist = THREAT_DISTANCE;
-        for (GameState.Player p : s.opponents()) {
-            double d = p.pos().dist(myGoal);
-            if (d < bestDist) { bestDist = d; best = p; }
-        }
-        return best;
     }
 
     private Vec2 computeMarkPosition(Vec2 opponent, Vec2 myGoal) {
