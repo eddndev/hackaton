@@ -44,7 +44,9 @@ public class GameState {
             Vec2 b = ballPos();
             double myD = myPos().dist(b);
             for (Player t : teammates(myId)) {
-                if (t.pos().dist(b) < myD - 0.01) return false;
+                double d = t.pos().dist(b);
+                if (d < myD) return false;
+                if (d == myD && t.id < myId) return false;
             }
             return true;
         }

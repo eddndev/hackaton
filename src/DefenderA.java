@@ -1,9 +1,11 @@
 public class DefenderA extends SoccerBot {
 
-    private static final double ATTRACTION      = 0.25;
     private static final double MARK_GAP        = 2.0;
     private static final double THREAT_DISTANCE = 65.0;
     private static final double BASE_FROM_GOAL  = 35.0;
+    private static final double Y_MIRROR        = 0.7;
+    private static final double SPEED_PER_TICK  = 2.0;
+    private static final int    CHASE_LOOKAHEAD = 6;
 
     public DefenderA(String team) { super(team); }
 
@@ -14,11 +16,12 @@ public class DefenderA extends SoccerBot {
         Vec2 myGoal  = ownGoal();
 
         if (canKick(s)) {
-            return kickToward(ballPos, opponentGoal(), 5.0);
+            return kickToward(ballPos, shotAimPoint(s), 5.0);
         }
 
         if (s.amClosestTeammateToBall(s.you.id) && ballInMyHalf(ballPos)) {
-            return moveToward(myPos, ballPos);
+            Vec2 target = interceptPoint(myPos, SPEED_PER_TICK, CHASE_LOOKAHEAD);
+            return moveToward(myPos, target);
         }
 
         GameState.Player threat = mostThreateningOpponent(s, myGoal);
@@ -27,9 +30,8 @@ public class DefenderA extends SoccerBot {
         }
 
         double baseX = attacksRight() ? BASE_FROM_GOAL : FIELD_W - BASE_FROM_GOAL;
-        Vec2   base  = new Vec2(baseX, FIELD_H / 2.0);
-        Vec2   home  = base.add(ballPos.sub(FIELD_CENTER).scale(ATTRACTION));
-        return moveToward(myPos, home);
+        double homeY = FIELD_CENTER.y + (ballPos.y - FIELD_CENTER.y) * Y_MIRROR;
+        return moveToward(myPos, new Vec2(baseX, homeY));
     }
 
     private boolean ballInMyHalf(Vec2 b) {

@@ -67,6 +67,25 @@ public abstract class SoccerBot {
         return s.myPos().dist(s.ballPos()) < 1.0;
     }
 
+    protected Vec2 shotAimPoint(GameState.State s) {
+        Vec2 goal = opponentGoal();
+        GameState.Player rivalGK = null;
+        double bestD = Double.MAX_VALUE;
+        for (GameState.Player p : s.opponents()) {
+            double d = p.pos().dist(goal);
+            if (d < bestD) { bestD = d; rivalGK = p; }
+        }
+        if (rivalGK == null) return goal;
+        double sign = rivalGK.y < goal.y ? +1 : -1;
+        return new Vec2(goal.x, goal.y + sign * GOAL_HALF_HEIGHT * 0.8);
+    }
+
+    protected Vec2 interceptPoint(Vec2 myPos, double speedPerTick, int maxLookahead) {
+        int t = predictor.timeToReach(myPos, speedPerTick, maxLookahead);
+        if (t < 0) return predictor.current();
+        return predictor.predict(t);
+    }
+
     protected String moveToward(Vec2 from, Vec2 target) {
         Vec2 d = target.sub(from).norm();
         return String.format(Locale.ROOT, "MOVE %d %.4f %.4f", playerId, d.x, d.y);

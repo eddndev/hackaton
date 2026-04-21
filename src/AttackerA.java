@@ -6,19 +6,31 @@ public class AttackerA extends SoccerBot {
     private static final double BLOCKER_RADIUS  = 4.0;
     private static final double PASS_RADIUS     = 3.0;
     private static final double PASS_THRESHOLD  = 0.3;
+    private static final double HYSTERESIS      = 0.12;
+    private static final double SPEED_PER_TICK  = 2.0;
+    private static final int    PRESS_MAX_LOOKAHEAD = 8;
+
+    private String lastAction = "PRESS";
 
     public AttackerA(String team) { super(team); }
 
     @Override
     protected String decide(GameState.State s) {
-        Vec2 goal    = opponentGoal();
         boolean hasBall = canKick(s);
 
-        double uShoot   = hasBall ? utilShoot(s, goal)   : 0;
-        double uPass    = hasBall ? utilPass(s)          : 0;
-        double uDribble = hasBall ? utilDribble(s, goal) : 0;
-        double uPress   = !hasBall ? utilPress(s)        : 0;
-        double uSupport = !hasBall ? utilSupport(s)      : 0;
+        double uShoot   = hasBall  ? utilShoot(s)   : 0;
+        double uPass    = hasBall  ? utilPass(s)    : 0;
+        double uDribble = hasBall  ? utilDribble(s) : 0;
+        double uPress   = !hasBall ? utilPress(s)   : 0;
+        double uSupport = !hasBall ? utilSupport(s) : 0;
+
+        switch (lastAction) {
+            case "SHOOT":   uShoot   += HYSTERESIS; break;
+            case "PASS":    uPass    += HYSTERESIS; break;
+            case "DRIBBLE": uDribble += HYSTERESIS; break;
+            case "PRESS":   uPress   += HYSTERESIS; break;
+            case "SUPPORT": uSupport += HYSTERESIS; break;
+        }
 
         double best = -1; String pick = "PRESS";
         if (uShoot   > best) { best = uShoot;   pick = "SHOOT";   }
@@ -27,20 +39,24 @@ public class AttackerA extends SoccerBot {
         if (uPress   > best) { best = uPress;   pick = "PRESS";   }
         if (uSupport > best) { best = uSupport; pick = "SUPPORT"; }
 
+        lastAction = pick;
+
         switch (pick) {
-            case "SHOOT":   return kickToward(s.ballPos(), goal, 5.0);
+            case "SHOOT":   return kickToward(s.ballPos(), shotAimPoint(s), 5.0);
             case "PASS":    return passAction(s);
-            case "DRIBBLE": return kickToward(s.ballPos(), goal, 2.5);
-            case "PRESS":   return moveToward(s.myPos(), s.ballPos());
+            case "DRIBBLE": return kickToward(s.ballPos(), shotAimPoint(s), 2.5);
+            case "PRESS":   return moveToward(s.myPos(),
+                                              interceptPoint(s.myPos(), SPEED_PER_TICK, PRESS_MAX_LOOKAHEAD));
             case "SUPPORT": return moveToward(s.myPos(), supportPosition(s));
             default:        return moveToward(s.myPos(), s.ballPos());
         }
     }
 
-    private double utilShoot(GameState.State s, Vec2 goal) {
-        double dist = s.ballPos().dist(goal);
+    private double utilShoot(GameState.State s) {
+        Vec2 aim = shotAimPoint(s);
+        double dist = s.ballPos().dist(aim);
         double distScore  = Math.max(0, 1.0 - dist / SHOOT_MAX_DIST);
-        double clearScore = lineClearance(s.ballPos(), goal, s.opponents(), BLOCKER_RADIUS);
+        double clearScore = lineClearance(s.ballPos(), aim, s.opponents(), BLOCKER_RADIUS);
         return distScore * clearScore;
     }
 
@@ -54,8 +70,8 @@ public class AttackerA extends SoccerBot {
         return improvement * clearance * 0.9;
     }
 
-    private double utilDribble(GameState.State s, Vec2 goal) {
-        double dist  = s.myPos().dist(goal);
+    private double utilDribble(GameState.State s) {
+        double dist  = s.myPos().dist(opponentGoal());
         double clear = forwardClearance(s);
         return clear * Math.min(1.0, dist / 50.0);
     }
@@ -111,7 +127,7 @@ public class AttackerA extends SoccerBot {
 
     private String passAction(GameState.State s) {
         GameState.Player t = bestPassTarget(s);
-        if (t == null) return kickToward(s.ballPos(), opponentGoal(), 5.0);
+        if (t == null) return kickToward(s.ballPos(), shotAimPoint(s), 5.0);
         double dist  = s.ballPos().dist(t.pos());
         double power = Math.max(1.5, Math.min(4.0, dist / 20.0));
         return kickToward(s.ballPos(), t.pos(), power);
@@ -119,11 +135,12 @@ public class AttackerA extends SoccerBot {
 
     private Vec2 supportPosition(GameState.State s) {
         Vec2 ball = s.ballPos();
-        double offsetY = s.myPos().y < FIELD_H / 2.0 ? -18 : 18;
+        int myId = s.you.id;
+        double offsetY = (myId % 2 == 0) ? -22 : 22;
         double offsetX = attacksRight() ? 15 : -15;
         return new Vec2(
                 clamp(ball.x + offsetX, 10, FIELD_W - 10),
-                clamp(ball.y + offsetY, 10, FIELD_H - 10)
+                clamp(ball.y + offsetY, 8, FIELD_H - 8)
         );
     }
 
