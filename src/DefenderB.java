@@ -4,7 +4,7 @@ public class DefenderB extends SoccerBot {
 
     @Override
     protected String decide(GameState.State s) {
-        if (canKick(s)) return kickToward(s.ballPos(), shotAimPoint(s), 4.5);
+        if (canKick(s)) return kickToward(s.ballPos(), opponentGoal(), 4.5);
 
         Vec2 ball = s.ballPos();
         
@@ -13,8 +13,7 @@ public class DefenderB extends SoccerBot {
         
         // Si soy el compañero más cercano y el balón está en mi zona, atacar el balón
         if (ballInMyHalf && s.amClosestTeammateToBall(this.playerId)) {
-            // Predice la posición en 5 ticks para cruzarse en el camino del balón
-            return moveToward(s.myPos(), predictor.predict(5));
+            return moveToward(s.myPos(), ball);
         }
 
         // Posición base para el equipo B (145 en X)
