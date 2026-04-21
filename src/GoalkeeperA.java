@@ -1,10 +1,13 @@
 public class GoalkeeperA extends SoccerBot {
 
-    private static final double MAX_ADVANCE       = 30.0;
+    private static final double MAX_ADVANCE       = 40.0;
     private static final double RUSH_DISTANCE     = 16.0;
-    private static final double DANGER_RADIUS     = 45.0;
+    private static final double DANGER_RADIUS     = 50.0;
     private static final double RIVAL_CONTROL_GAP = 10.0;
     private static final double Y_EXPANSION_GAIN  = 0.7;
+    private static final double APPROACH_SPEED    = 0.5;
+    private static final double APPROACH_BONUS    = 5.0;
+    private static final double BALL_CLEARANCE    = 4.0;
     private static final int    LOOKAHEAD_BASE    = 4;
 
     public GoalkeeperA(String team) { super(team); }
@@ -31,14 +34,29 @@ public class GoalkeeperA extends SoccerBot {
         boolean rivalControls = rivalBallDist < RIVAL_CONTROL_GAP;
         boolean dangerZone    = ballDistGoal < DANGER_RADIUS;
 
+        boolean approaching = false;
+        if (nearestRival != null) {
+            Vec2 rivalVel = playerVelocity(nearestRival.id);
+            if (rivalVel.len() > 0.3) {
+                Vec2 toGoalUnit = goal.sub(nearestRival.pos());
+                double toGoalLen = toGoalUnit.len();
+                if (toGoalLen > 1e-6) {
+                    double dot = rivalVel.dot(toGoalUnit.scale(1.0 / toGoalLen));
+                    approaching = dot > APPROACH_SPEED;
+                }
+            }
+        }
+
         double advance;
         if (!rivalControls) {
-            advance = Math.min(MAX_ADVANCE, ballDistGoal * 0.22);
+            advance = Math.min(MAX_ADVANCE, ballDistGoal * 0.28);
         } else if (dangerZone) {
-            advance = Math.max(3.0, ballDistGoal * 0.12);
+            advance = Math.min(MAX_ADVANCE, ballDistGoal * 0.45);
         } else {
-            advance = Math.min(MAX_ADVANCE * 0.7, ballDistGoal * 0.16);
+            advance = Math.min(MAX_ADVANCE * 0.85, ballDistGoal * 0.22);
         }
+        if (approaching) advance += APPROACH_BONUS;
+        advance = Math.max(3.0, Math.min(advance, ballDistGoal - BALL_CLEARANCE));
 
         Vec2 dirGoalToBall = ball.sub(goal);
         double dirLen = dirGoalToBall.len();
@@ -46,7 +64,7 @@ public class GoalkeeperA extends SoccerBot {
         Vec2 unitDir = dirGoalToBall.scale(1.0 / dirLen);
         Vec2 arcTarget = goal.add(unitDir.scale(advance));
 
-        int lookahead = LOOKAHEAD_BASE + (int) (advance / 8.0);
+        int lookahead = LOOKAHEAD_BASE + (int) (advance / 8.0) + (approaching ? 2 : 0);
         Vec2 predicted = predictor.predict(lookahead);
         double yRange = GOAL_HALF_HEIGHT + advance * Y_EXPANSION_GAIN;
         double targetY = clamp(predicted.y,
@@ -57,14 +75,11 @@ public class GoalkeeperA extends SoccerBot {
     }
 
     private String kickActionFromGK(GameState.State s) {
-        GameState.Player fwd = mostForwardTeammate(s);
-        if (fwd != null) {
-            double clearance = lineClearance(s.ballPos(), fwd.pos(), s.opponents(), 4.0);
-            if (clearance > 0.25) {
-                Vec2 leadTo = leadPosition(fwd, 3);
-                double dist = s.ballPos().dist(leadTo);
-                return kickToward(s.ballPos(), leadTo, kickPowerForDistance(dist));
-            }
+        GameState.Player target = bestPassTarget(s, 0.25);
+        if (target != null) {
+            Vec2 leadTo = leadPosition(target, 3);
+            double dist = s.ballPos().dist(leadTo);
+            return kickToward(s.ballPos(), leadTo, kickPowerForDistance(dist));
         }
         return kickToward(s.ballPos(), clearanceTarget(s.ballPos()), 5.0);
     }
